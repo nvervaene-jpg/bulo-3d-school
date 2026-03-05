@@ -1,0 +1,18 @@
+{
+  "name": "bulo-sint-franciscus",
+  "version": "1.0.0",
+  "description": "BuLo Sint-Franciscus 3D School - Multiplayer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "ws": "^8.13.0"
+  }
+}
