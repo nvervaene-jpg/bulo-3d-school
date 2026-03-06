@@ -2223,85 +2223,68 @@ renderer.render(scene,camera);
 // ─── MULTIPLAYER ─────────────────────────────────────────────────────────────
 const MP = {
   ws: null,
+  myId: null,
   token: null,
   username: null,
-  others: {},        // id → { group, lastSeen }
-  tickInterval: null,
-  connected: false,
+  others: {},   // id → { mesh, label }
 };
 
-function mpConnect(token, username) {
+function mpConnect(token, username, userId, avatar) {
   MP.token = token;
   MP.username = username;
+  MP.myId = userId;
 
-  const wsUrl = location.origin.replace(/^http/, 'ws') + '/ws?token=' + token;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = proto + '//' + location.host;
   MP.ws = new WebSocket(wsUrl);
 
   MP.ws.onopen = () => {
-    MP.connected = true;
-    MP.tickInterval = setInterval(mpSendPos, 100);
+    MP.ws.send(JSON.stringify({
+      type: 'join',
+      token: token,
+      x: camera.position.x,
+      z: camera.position.z,
+      facing: yaw,
+      avatar: avatar || {}
+    }));
+    setInterval(mpSendMove, 100);
   };
 
   MP.ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'state') mpHandleState(msg.players);
+      if (msg.type === 'init') {
+        msg.players.forEach(p => mpAddPlayer(p));
+      } else if (msg.type === 'playerJoin') {
+        mpAddPlayer(msg);
+      } else if (msg.type === 'playerMove') {
+        mpMovePlayer(msg);
+      } else if (msg.type === 'playerLeave') {
+        mpRemovePlayer(msg.id);
+      }
     } catch(err) {}
   };
 
   MP.ws.onclose = () => {
-    MP.connected = false;
-    clearInterval(MP.tickInterval);
-    // Remove all other player avatars
-    Object.values(MP.others).forEach(o => scene.remove(o.group));
-    MP.others = {};
-    // Retry after 5s
-    setTimeout(() => mpConnect(MP.token, MP.username), 5000);
+    Object.keys(MP.others).forEach(id => mpRemovePlayer(id));
+    setTimeout(() => mpConnect(token, username, userId, avatar), 5000);
   };
 }
 
-function mpSendPos() {
+function mpSendMove() {
   if (!MP.ws || MP.ws.readyState !== 1) return;
   MP.ws.send(JSON.stringify({
-    type: 'pos',
+    type: 'move',
     x: camera.position.x,
-    y: camera.position.y,
     z: camera.position.z,
-    ry: yaw,
+    facing: yaw
   }));
 }
 
-function mpHandleState(players) {
-  const now = Date.now();
-  const seen = new Set();
-
-  players.forEach(p => {
-    if (p.id === MP.myId) return;
-    seen.add(p.id);
-
-    if (!MP.others[p.id]) {
-      MP.others[p.id] = { group: mpMakeAvatar(p.username), lastSeen: now };
-      scene.add(MP.others[p.id].group);
-    }
-    const o = MP.others[p.id];
-    o.lastSeen = now;
-    o.group.position.set(p.x, p.y, p.z);
-    o.group.rotation.y = p.ry || 0;
-  });
-
-  // Remove stale players
-  Object.keys(MP.others).forEach(id => {
-    if (!seen.has(id)) {
-      scene.remove(MP.others[id].group);
-      delete MP.others[id];
-    }
-  });
-}
-
-function mpMakeAvatar(name) {
+function mpAddPlayer(p) {
+  if (p.id === MP.myId || MP.others[p.id]) return;
   const group = new THREE.Group();
 
-  // Body
   const body = new THREE.Mesh(
     new THREE.CylinderGeometry(0.25, 0.25, 0.9, 8),
     new THREE.MeshLambertMaterial({ color: 0x4488ff })
@@ -2309,7 +2292,6 @@ function mpMakeAvatar(name) {
   body.position.y = 0.45;
   group.add(body);
 
-  // Head
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.22, 8, 8),
     new THREE.MeshLambertMaterial({ color: 0xffe0bd })
@@ -2317,47 +2299,76 @@ function mpMakeAvatar(name) {
   head.position.y = 1.1;
   group.add(head);
 
-  // Nametag (sprite via canvas)
   const canvas = document.createElement('canvas');
   canvas.width = 256; canvas.height = 64;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.beginPath();
   ctx.roundRect(4, 4, 248, 56, 10);
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 28px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(name, 128, 40);
+  ctx.fillText(p.username, 128, 40);
   const tex = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
   sprite.position.y = 1.7;
   sprite.scale.set(1.5, 0.4, 1);
   group.add(sprite);
 
-  return group;
+  group.position.set(p.x || 0, 0, p.z || 0);
+  group.rotation.y = p.facing || 0;
+  scene.add(group);
+  MP.others[p.id] = group;
+  mpUpdateHUD();
+}
+
+function mpMovePlayer(msg) {
+  const g = MP.others[msg.id];
+  if (!g) return;
+  g.position.set(msg.x, 0, msg.z);
+  g.rotation.y = msg.facing || 0;
+}
+
+function mpRemovePlayer(id) {
+  if (MP.others[id]) {
+    scene.remove(MP.others[id]);
+    delete MP.others[id];
+    mpUpdateHUD();
+  }
+}
+
+function mpUpdateHUD() {
+  let hud = document.getElementById('mp-hud');
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'mp-hud';
+    hud.style.cssText = 'position:fixed;top:12px;right:16px;background:rgba(0,0,0,.6);color:#00d4ff;font-family:Arial,sans-serif;font-size:1rem;padding:6px 14px;border-radius:20px;z-index:100;pointer-events:none';
+    document.body.appendChild(hud);
+  }
+  hud.textContent = '👥 ' + (Object.keys(MP.others).length + 1) + ' online';
 }
 
 // ─── LOGIN OVERLAY ────────────────────────────────────────────────────────────
 function mpShowLogin() {
   const overlay = document.createElement('div');
   overlay.id = 'mp-login';
-  overlay.style.cssText = `
-    position:fixed;inset:0;background:rgba(0,0,0,0.85);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    z-index:9999;font-family:'Fredoka One',cursive;color:#fff;
-  `;
+  overlay.style.cssText = [
+    'position:fixed;inset:0;background:rgba(0,0,0,0.85)',
+    'display:flex;flex-direction:column;align-items:center;justify-content:center',
+    'z-index:9999;font-family:Arial,sans-serif;color:#fff'
+  ].join(';');
   overlay.innerHTML = `
-    <img src="/logo.png" onerror="this.style.display='none'" style="height:80px;margin-bottom:16px">
     <h2 style="color:#00d4ff;font-size:2rem;margin:0 0 24px">BuLo 3D School</h2>
-    <div style="background:#1a2a3a;border-radius:16px;padding:32px;width:320px;box-shadow:0 8px 32px rgba(0,212,255,.2)">
-      <label style="font-size:1rem;color:#aaa">Gebruikersnaam</label><br>
+    <div style="background:#1a2a3a;border-radius:16px;padding:32px;width:320px">
+      <label>Gebruikersnaam</label><br>
       <input id="mp-user" type="text" placeholder="jouw naam"
         style="width:100%;margin:8px 0 16px;padding:10px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1.1rem;box-sizing:border-box"><br>
-      <label style="font-size:1rem;color:#aaa">Wachtwoord</label><br>
+      <label>Wachtwoord</label><br>
       <input id="mp-pass" type="password" placeholder="••••••"
         style="width:100%;margin:8px 0 24px;padding:10px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1.1rem;box-sizing:border-box"><br>
       <button id="mp-btn"
-        style="width:100%;padding:12px;border-radius:10px;border:none;background:#00d4ff;color:#000;font-size:1.2rem;font-family:'Fredoka One',cursive;cursor:pointer">
+        style="width:100%;padding:12px;border-radius:10px;border:none;background:#00d4ff;color:#000;font-size:1.2rem;cursor:pointer">
         Inloggen 🎮
       </button>
       <p id="mp-err" style="color:#ff4444;margin-top:12px;text-align:center;min-height:20px"></p>
@@ -2365,55 +2376,35 @@ function mpShowLogin() {
   `;
   document.body.appendChild(overlay);
 
-  document.getElementById('mp-btn').onclick = async () => {
+  async function doLogin() {
     const user = document.getElementById('mp-user').value.trim();
     const pass = document.getElementById('mp-pass').value;
     const err  = document.getElementById('mp-err');
     err.textContent = '';
     if (!user || !pass) { err.textContent = 'Vul beide velden in!'; return; }
-
     try {
-      const res = await fetch('/auth/login', {
+      const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user, password: pass }),
       });
       const data = await res.json();
       if (!res.ok) { err.textContent = data.error || 'Fout!'; return; }
-
-      MP.myId = data.user.id;
       overlay.remove();
-      mpConnect(data.token, data.user.username);
+      mpConnect(data.token, data.user.username, data.user.id, data.user.avatar);
+      mpUpdateHUD();
     } catch(e) {
       err.textContent = 'Server niet bereikbaar.';
     }
-  };
+  }
 
-  // Allow Enter key
-  [document.getElementById('mp-user'), document.getElementById('mp-pass')].forEach(el =>
-    el.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('mp-btn').click(); })
+  document.getElementById('mp-btn').onclick = doLogin;
+  ['mp-user','mp-pass'].forEach(id =>
+    document.getElementById(id).addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); })
   );
 }
 
-// Show login when page loads (before start screen)
-window.addEventListener('DOMContentLoaded', () => {
-  // Small delay so Three.js scene is ready
-  setTimeout(mpShowLogin, 100);
-});
-
-// Online player count HUD
-function mpUpdateHUD() {
-  let hud = document.getElementById('mp-hud');
-  if (!hud) {
-    hud = document.createElement('div');
-    hud.id = 'mp-hud';
-    hud.style.cssText = 'position:fixed;top:12px;right:16px;background:rgba(0,0,0,.6);color:#00d4ff;font-family:Fredoka One,cursive;font-size:1rem;padding:6px 14px;border-radius:20px;z-index:100;pointer-events:none';
-    document.body.appendChild(hud);
-  }
-  const count = Object.keys(MP.others).length + 1;
-  hud.textContent = '👥 ' + count + ' online';
-}
-setInterval(mpUpdateHUD, 500);
+window.addEventListener('DOMContentLoaded', () => setTimeout(mpShowLogin, 200));
 </script>
 </body>
 </html>
