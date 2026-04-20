@@ -10,6 +10,7 @@ const fs         = require('fs');
 const JWT_SECRET = 'bulo-sint-franciscus-2025-secret';
 const PORT       = process.env.PORT || 3000;
 const DB_FILE    = path.join(__dirname, 'users.json');
+const ANSWERS_FILE = path.join(__dirname, 'answers.json');
 
 // ─── Simple JSON "database" ───────────────────────────────────────────────
 function loadDB(){
@@ -18,16 +19,50 @@ function loadDB(){
 }
 function saveDB(db){ fs.writeFileSync(DB_FILE, JSON.stringify(db,null,2)); }
 
-// Maak default admin-account als nog geen users bestaan
+function loadAnswers(){
+  if(!fs.existsSync(ANSWERS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(ANSWERS_FILE,'utf8')); } catch(e){ return []; }
+}
+function saveAnswers(arr){ fs.writeFileSync(ANSWERS_FILE, JSON.stringify(arr,null,2)); }
+
+// ─── Hardcoded gebruikers ────────────────────────────────────────────────────
+const CLASSES = {
+  'Panters': ['Nassim','Mon','Niano','Mattanja','Ilyas','Kendji','Wesley','Luca','Hugo']
+};
+const STUDENT_PASSWORD = 'jufcindy';
+const ADMIN_PASSWORD   = 'admin123';
+
 (function initDB(){
   const db = loadDB();
-  if(!db.users.find(u=>u.username==='admin')){
-    const hash = bcrypt.hashSync('admin123', 10);
-    db.users.push({ id:'admin', username:'admin', password:hash, role:'admin', avatar:{shirt:0xe8231a,pants:0x2a3a6a,shoes:0x1a1a1a,pet:null}, coins:0, xp:0, createdAt: new Date().toISOString() });
-    saveDB(db);
-    console.log('✅ Admin aangemaakt: gebruiker=admin wachtwoord=admin123');
+  const existingIds = new Set(db.users.map(u=>u.id));
+  if(!existingIds.has('admin')){
+    db.users.push({ id:'admin', username:'admin', password:bcrypt.hashSync(ADMIN_PASSWORD,10),
+      role:'admin', klas:'', avatar:{shirt:0xe8231a,pants:0x2a3a6a,shoes:0x1a1a1a,pet:null},
+      coins:0, xp:0, createdAt:new Date().toISOString() });
   }
+  const studentHash = bcrypt.hashSync(STUDENT_PASSWORD, 10);
+  for(const [klas, names] of Object.entries(CLASSES)){
+    for(const name of names){
+      const id = klas.toLowerCase()+'-'+name.toLowerCase();
+      if(!existingIds.has(id)){
+        db.users.push({ id, username:name, klas, password:studentHash,
+          role:'student', avatar:{shirt:0xe8231a,pants:0x2a3a6a,shoes:0x1a1a1a,pet:null},
+          coins:0, xp:0, createdAt:new Date().toISOString() });
+      }
+    }
+  }
+  saveDB(db);
+  console.log('✅ Gebruikers gesynchroniseerd');
 })();
+
+// Geef klassenlijst terug aan loginscherm
+app.get('/api/classes', (req,res)=>{
+  const result = {};
+  for(const [klas, names] of Object.entries(CLASSES)){
+    result[klas] = names;
+  }
+  res.json(result);
+});
 
 // ─── Express app ─────────────────────────────────────────────────────────
 const app    = express();
@@ -110,6 +145,31 @@ app.patch('/api/me/progress', auth, (req,res)=>{
   res.json({ok:true});
 });
 
+// ─── Antwoorden opslaan & ophalen ─────────────────────────────────────────
+app.post('/api/answers', auth, (req,res)=>{
+  const { question, zone, correct, timestamp } = req.body;
+  const answers = loadAnswers();
+  answers.push({
+    userId:    req.user.id,
+    username:  req.user.username,
+    question:  question || '?',
+    zone:      zone || '?',
+    correct:   !!correct,
+    timestamp: timestamp || new Date().toISOString()
+  });
+  saveAnswers(answers);
+  res.json({ok:true});
+});
+
+app.get('/api/answers', auth, adminOnly, (req,res)=>{
+  res.json(loadAnswers());
+});
+
+app.delete('/api/answers', auth, adminOnly, (req,res)=>{
+  saveAnswers([]);
+  res.json({ok:true});
+});
+
 // ─── WebSocket: multiplayer posities ─────────────────────────────────────
 const wss = new WebSocket.Server({ server });
 const players = new Map(); // ws → playerInfo
@@ -120,16 +180,13 @@ wss.on('connection', (ws)=>{
     try { msg = JSON.parse(raw); } catch(e){ return; }
 
     if(msg.type==='join'){
-      // Verifieer token
       try {
         const user = jwt.verify(msg.token, JWT_SECRET);
         const info = { id:user.id, username:user.username, x:msg.x||0, z:msg.z||0, facing:msg.facing||Math.PI, avatar:msg.avatar||{}, ws };
         players.set(ws, info);
-        // Stuur huidige spelers naar nieuwkomer
         const others = [];
         players.forEach((p,w)=>{ if(w!==ws) others.push({id:p.id,username:p.username,x:p.x,z:p.z,facing:p.facing,avatar:p.avatar}); });
         ws.send(JSON.stringify({type:'init', players:others}));
-        // Vertel anderen dat nieuwe speler joined
         broadcast(ws, {type:'playerJoin', id:user.id, username:user.username, x:info.x, z:info.z, facing:info.facing, avatar:info.avatar});
         console.log(`👤 ${user.username} connected (${players.size} online)`);
       } catch(e){ ws.send(JSON.stringify({type:'error',msg:'Ongeldig token'})); ws.close(); }
