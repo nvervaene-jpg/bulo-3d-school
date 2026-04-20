@@ -55,14 +55,6 @@ const ADMIN_PASSWORD   = 'admin123';
   console.log('✅ Gebruikers gesynchroniseerd');
 })();
 
-// Geef klassenlijst terug aan loginscherm
-app.get('/api/classes', (req,res)=>{
-  const result = {};
-  for(const [klas, names] of Object.entries(CLASSES)){
-    result[klas] = names;
-  }
-  res.json(result);
-});
 
 // ─── Express app ─────────────────────────────────────────────────────────
 const app    = express();
@@ -81,6 +73,15 @@ function adminOnly(req,res,next){
   if(req.user.role!=='admin') return res.status(403).json({error:'Alleen admin'});
   next();
 }
+
+// ─── Klassenlijst (publiek, geen login nodig) ────────────────────────────────
+app.get('/api/classes', (req,res)=>{
+  const result = {};
+  for(const [klas, names] of Object.entries(CLASSES)){
+    result[klas] = names;
+  }
+  res.json(result);
+});
 
 // ─── Auth routes ─────────────────────────────────────────────────────────
 app.post('/api/login', (req,res)=>{
