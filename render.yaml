@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: bulo-3d-school
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free

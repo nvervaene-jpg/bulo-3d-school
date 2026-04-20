@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BuLo Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1b2a;color:#e0e8f0;font-family:Arial,sans-serif;min-height:100vh}
+header{background:#1a2a3a;padding:16px 24px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #00d4ff}
+header h1{color:#00d4ff;font-size:1.4rem}
+header span{color:#aaa;font-size:.9rem;margin-left:auto}
+nav{display:flex;gap:4px;padding:16px 24px 0}
+.tab{padding:10px 20px;border-radius:8px 8px 0 0;cursor:pointer;background:#1a2a3a;color:#aaa;border:none;font-size:1rem;transition:.2s}
+.tab.active{background:#00d4ff;color:#000;font-weight:bold}
+.panel{display:none;padding:24px}
+.panel.active{display:block}
+
+/* Login */
+#loginBox{max-width:360px;margin:80px auto;background:#1a2a3a;border-radius:16px;padding:32px}
+#loginBox h2{color:#00d4ff;margin-bottom:24px;text-align:center}
+.inp{width:100%;padding:10px;margin-bottom:16px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1rem}
+.btn{width:100%;padding:12px;border-radius:10px;border:none;background:#00d4ff;color:#000;font-size:1.1rem;cursor:pointer;font-weight:bold}
+.btn:hover{background:#00b8e0}
+.btn-red{background:#e8231a;color:#fff}
+.btn-red:hover{background:#c01a13}
+.err{color:#ff4444;margin-top:12px;text-align:center;min-height:20px}
+
+/* Cards */
+.cards{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.card{background:#1a2a3a;border-radius:12px;padding:20px;min-width:160px;text-align:center;border:1px solid #2a3a4a}
+.card .num{font-size:2.2rem;font-weight:bold;color:#00d4ff}
+.card .lbl{color:#aaa;font-size:.85rem;margin-top:4px}
+
+/* Table */
+.tbl-wrap{background:#1a2a3a;border-radius:12px;overflow:hidden;border:1px solid #2a3a4a}
+.tbl-head{display:flex;gap:8px;padding:12px 16px;background:#0d1b2a;font-weight:bold;color:#00d4ff;font-size:.85rem}
+.tbl-row{display:flex;gap:8px;padding:10px 16px;border-top:1px solid #1e2e3e;font-size:.9rem;align-items:center}
+.tbl-row:hover{background:#1e2e3e}
+.c0{width:140px;flex-shrink:0}
+.c1{width:100px;flex-shrink:0}
+.c2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c3{width:60px;flex-shrink:0;text-align:center}
+.c4{width:140px;flex-shrink:0;color:#aaa;font-size:.8rem}
+.ok{color:#00b86b;font-weight:bold}
+.nok{color:#e8231a;font-weight:bold}
+
+/* Filter bar */
+.fbar{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.fbar select,.fbar input{padding:8px 12px;border-radius:8px;border:1px solid #2a3a4a;background:#1a2a3a;color:#fff;font-size:.9rem}
+.fbar label{color:#aaa;font-size:.9rem}
+
+/* Users */
+.user-row{display:flex;gap:8px;padding:10px 16px;border-top:1px solid #1e2e3e;align-items:center}
+.user-row:hover{background:#1e2e3e}
+.u0{width:160px;flex-shrink:0;font-weight:bold}
+.u1{width:80px;flex-shrink:0;color:#aaa}
+.u2{flex:1}
+.u3{width:80px;text-align:right}
+.tag{padding:2px 10px;border-radius:20px;font-size:.75rem;font-weight:bold}
+.tag-admin{background:#e8231a22;color:#e8231a;border:1px solid #e8231a}
+.tag-student{background:#00d4ff22;color:#00d4ff;border:1px solid #00d4ff}
+.btn-sm{padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:.8rem;font-weight:bold}
+.btn-sm-red{background:#e8231a22;color:#e8231a;border:1px solid #e8231a}
+.btn-sm-red:hover{background:#e8231a;color:#fff}
+
+/* Add user form */
+.add-form{background:#1a2a3a;border-radius:12px;padding:20px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;border:1px solid #2a3a4a}
+.add-form label{color:#aaa;font-size:.85rem;display:block;margin-bottom:4px}
+.add-form input{padding:8px 12px;border-radius:8px;border:1px solid #2a3a4a;background:#0d1b2a;color:#fff;font-size:.95rem;width:180px}
+.add-form .btn{width:auto;padding:9px 20px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginBox">
+  <h2>🏫 BuLo Admin</h2>
+  <input id="lu" class="inp" type="text" placeholder="Gebruikersnaam">
+  <input id="lp" class="inp" type="password" placeholder="Wachtwoord">
+  <button class="btn" onclick="doLogin()">Inloggen</button>
+  <p class="err" id="lerr"></p>
+</div>
+
+<!-- MAIN (hidden until login) -->
+<div id="main" style="display:none">
+  <header>
+    <h1>🏫 BuLo Admin Panel</h1>
+    <span id="huser"></span>
+    <button class="btn" style="width:auto;padding:6px 16px;margin-left:16px" onclick="doLogout()">Uitloggen</button>
+  </header>
+  <nav>
+    <button class="tab active" onclick="showTab('antwoorden')">📊 Antwoorden</button>
+    <button class="tab" onclick="showTab('leerlingen')">👥 Leerlingen</button>
+  </nav>
+
+  <!-- ANTWOORDEN TAB -->
+  <div id="tab-antwoorden" class="panel active">
+    <div class="cards">
+      <div class="card"><div class="num" id="statTotal">–</div><div class="lbl">Totaal antwoorden</div></div>
+      <div class="card"><div class="num" id="statCorrect" style="color:#00b86b">–</div><div class="lbl">Juist</div></div>
+      <div class="card"><div class="num" id="statWrong" style="color:#e8231a">–</div><div class="lbl">Fout</div></div>
+      <div class="card"><div class="num" id="statPct">–</div><div class="lbl">% Juist</div></div>
+    </div>
+    <div class="fbar">
+      <label>Leerling: <select id="fUser" onchange="renderTable()"><option value="">Alle</option></select></label>
+      <label>Vak: <select id="fZone" onchange="renderTable()"><option value="">Alle vakken</option></select></label>
+      <label>Resultaat: <select id="fResult" onchange="renderTable()">
+        <option value="">Alles</option>
+        <option value="1">✅ Juist</option>
+        <option value="0">❌ Fout</option>
+      </select></label>
+      <button class="btn btn-red" style="width:auto;padding:8px 16px" onclick="clearAnswers()">🗑 Alles wissen</button>
+    </div>
+    <div class="tbl-wrap">
+      <div class="tbl-head">
+        <div class="c0">Leerling</div>
+        <div class="c1">Vak</div>
+        <div class="c2">Vraag</div>
+        <div class="c3">Resultaat</div>
+        <div class="c4">Tijdstip</div>
+      </div>
+      <div id="answersBody"></div>
+    </div>
+  </div>
+
+  <!-- LEERLINGEN TAB -->
+  <div id="tab-leerlingen" class="panel">
+    <div class="add-form">
+      <div><label>Gebruikersnaam</label><input id="nu" placeholder="bijv. jan"></div>
+      <div><label>Wachtwoord</label><input id="np" type="password" placeholder="wachtwoord"></div>
+      <button class="btn" style="width:auto;padding:9px 20px" onclick="addUser()">➕ Toevoegen</button>
+      <p class="err" id="uerr" style="margin:0;padding-top:20px"></p>
+    </div>
+    <div class="tbl-wrap">
+      <div class="tbl-head" style="display:flex;gap:8px;padding:12px 16px">
+        <div class="u0">Naam</div>
+        <div class="u1">Rol</div>
+        <div class="u2">Aangemaakt</div>
+        <div class="u3"></div>
+      </div>
+      <div id="usersBody"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOKEN = null;
+let allAnswers = [];
+
+async function doLogin(){
+  const u = document.getElementById('lu').value.trim();
+  const p = document.getElementById('lp').value;
+  const err = document.getElementById('lerr');
+  err.textContent = '';
+  try {
+    const res = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+    const data = await res.json();
+    if(!res.ok){ err.textContent = data.error || 'Fout'; return; }
+    if(data.user.role !== 'admin'){ err.textContent = 'Alleen admins kunnen inloggen.'; return; }
+    TOKEN = data.token;
+    document.getElementById('loginBox').style.display = 'none';
+    document.getElementById('main').style.display = 'block';
+    document.getElementById('huser').textContent = '👤 ' + data.user.username;
+    loadAll();
+  } catch(e){ err.textContent = 'Server niet bereikbaar.'; }
+}
+document.getElementById('lp').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+
+function doLogout(){ TOKEN=null; location.reload(); }
+
+function showTab(name){
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active', ['antwoorden','leerlingen'][i]===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+async function loadAll(){
+  await Promise.all([loadAnswers(), loadUsers()]);
+}
+
+async function loadAnswers(){
+  const res = await fetch('/api/answers',{headers:{Authorization:'Bearer '+TOKEN}});
+  allAnswers = await res.json();
+  // Populate filters
+  const users = [...new Set(allAnswers.map(a=>a.username))].sort();
+  const zones = [...new Set(allAnswers.map(a=>a.zone))].sort();
+  const fu = document.getElementById('fUser');
+  fu.innerHTML = '<option value="">Alle leerlingen</option>' + users.map(u=>`<option>${u}</option>`).join('');
+  const fz = document.getElementById('fZone');
+  fz.innerHTML = '<option value="">Alle vakken</option>' + zones.map(z=>`<option>${z}</option>`).join('');
+  renderTable();
+}
+
+function renderTable(){
+  const fu = document.getElementById('fUser').value;
+  const fz = document.getElementById('fZone').value;
+  const fr = document.getElementById('fResult').value;
+
+  let filtered = allAnswers.filter(a=>{
+    if(fu && a.username !== fu) return false;
+    if(fz && a.zone !== fz) return false;
+    if(fr === '1' && !a.correct) return false;
+    if(fr === '0' && a.correct) return false;
+    return true;
+  }).reverse(); // nieuwste eerst
+
+  const total = filtered.length;
+  const correct = filtered.filter(a=>a.correct).length;
+  const pct = total ? Math.round(correct/total*100) : 0;
+
+  document.getElementById('statTotal').textContent = allAnswers.length;
+  document.getElementById('statCorrect').textContent = allAnswers.filter(a=>a.correct).length;
+  document.getElementById('statWrong').textContent = allAnswers.filter(a=>!a.correct).length;
+  document.getElementById('statPct').textContent = (allAnswers.length ? Math.round(allAnswers.filter(a=>a.correct).length/allAnswers.length*100) : 0) + '%';
+
+  const body = document.getElementById('answersBody');
+  if(!filtered.length){
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:#aaa">Geen antwoorden gevonden.</div>';
+    return;
+  }
+  body.innerHTML = filtered.map(a=>{
+    const d = new Date(a.timestamp);
+    const ts = d.toLocaleDateString('nl-BE') + ' ' + d.toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'});
+    return `<div class="tbl-row">
+      <div class="c0">${esc(a.username)}</div>
+      <div class="c1">${esc(a.zone)}</div>
+      <div class="c2" title="${esc(a.question)}">${esc(a.question)}</div>
+      <div class="c3">${a.correct ? '<span class="ok">✅</span>' : '<span class="nok">❌</span>'}</div>
+      <div class="c4">${ts}</div>
+    </div>`;
+  }).join('');
+}
+
+async function clearAnswers(){
+  if(!confirm('Alle antwoorden wissen?')) return;
+  await fetch('/api/answers',{method:'DELETE',headers:{Authorization:'Bearer '+TOKEN}});
+  allAnswers = [];
+  renderTable();
+}
+
+async function loadUsers(){
+  const res = await fetch('/api/users',{headers:{Authorization:'Bearer '+TOKEN}});
+  const users = await res.json();
+  const body = document.getElementById('usersBody');
+  body.innerHTML = users.map(u=>`
+    <div class="user-row">
+      <div class="u0">${esc(u.username)}</div>
+      <div class="u1"><span class="tag tag-${u.role}">${u.role}</span></div>
+      <div class="u2" style="color:#aaa;font-size:.85rem">${new Date(u.createdAt).toLocaleDateString('nl-BE')}</div>
+      <div class="u3">${u.id==='admin'?'':
+        `<button class="btn-sm btn-sm-red" onclick="delUser('${u.id}','${esc(u.username)}')">Verwijder</button>`
+      }</div>
+    </div>
+  `).join('');
+}
+
+async function addUser(){
+  const u = document.getElementById('nu').value.trim();
+  const p = document.getElementById('np').value;
+  const err = document.getElementById('uerr');
+  err.textContent = '';
+  if(!u||!p){ err.textContent = 'Vul naam en wachtwoord in.'; return; }
+  const res = await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({username:u,password:p})});
+  const data = await res.json();
+  if(!res.ok){ err.textContent = data.error; return; }
+  err.style.color='#00b86b'; err.textContent = '✅ ' + u + ' aangemaakt!';
+  document.getElementById('nu').value=''; document.getElementById('np').value='';
+  setTimeout(()=>{ err.textContent=''; err.style.color='#ff4444'; },3000);
+  loadUsers();
+}
+
+async function delUser(id, name){
+  if(!confirm(`"${name}" verwijderen?`)) return;
+  await fetch('/api/users/'+id,{method:'DELETE',headers:{Authorization:'Bearer '+TOKEN}});
+  loadUsers();
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Auto-refresh antwoorden elke 30 seconden
+setInterval(()=>{ if(TOKEN) loadAnswers(); }, 30000);
+</script>
+</body>
+</html>
