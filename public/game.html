@@ -1956,6 +1956,19 @@ function showFB(ok,expl){
 }
 
 function handleScore(ok){
+  // Log antwoord naar server
+  if(MP.token && cq && cqZone){
+    fetch('/api/answers', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+MP.token},
+      body:JSON.stringify({
+        question: cq.text,
+        zone: cqZone.name,
+        correct: ok,
+        timestamp: new Date().toISOString()
+      })
+    }).catch(()=>{});
+  }
   if(ok){
     GS.correct++;GS.streak++;
     const xp=cq.difficulty*10;GS.xp+=xp;GS.level=Math.floor(GS.xp/60)+1;
@@ -2353,55 +2366,94 @@ function mpUpdateHUD() {
 function mpShowLogin() {
   const overlay = document.createElement('div');
   overlay.id = 'mp-login';
-  overlay.style.cssText = [
-    'position:fixed;inset:0;background:rgba(0,0,0,0.85)',
-    'display:flex;flex-direction:column;align-items:center;justify-content:center',
-    'z-index:9999;font-family:Arial,sans-serif;color:#fff'
-  ].join(';');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;font-family:Arial,sans-serif;color:#fff';
   overlay.innerHTML = `
-    <h2 style="color:#00d4ff;font-size:2rem;margin:0 0 24px">BuLo 3D School</h2>
-    <div style="background:#1a2a3a;border-radius:16px;padding:32px;width:320px">
-      <label>Gebruikersnaam</label><br>
-      <input id="mp-user" type="text" placeholder="jouw naam"
-        style="width:100%;margin:8px 0 16px;padding:10px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1.1rem;box-sizing:border-box"><br>
-      <label>Wachtwoord</label><br>
+    <h2 style="color:#00d4ff;font-size:2rem;margin:0 0 24px">🏫 BuLo 3D School</h2>
+    <div style="background:#1a2a3a;border-radius:16px;padding:32px;width:340px;box-shadow:0 8px 32px rgba(0,212,255,.2)">
+      <label style="color:#aaa;font-size:.9rem">Klas</label><br>
+      <select id="mp-klas" style="width:100%;margin:6px 0 16px;padding:10px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1.1rem">
+        <option value="">-- Kies je klas --</option>
+      </select>
+      <label style="color:#aaa;font-size:.9rem">Naam</label><br>
+      <select id="mp-naam" disabled style="width:100%;margin:6px 0 16px;padding:10px;border-radius:8px;border:2px solid #2a3a4a;background:#0d1b2a;color:#aaa;font-size:1.1rem">
+        <option value="">-- Kies eerst je klas --</option>
+      </select>
+      <label style="color:#aaa;font-size:.9rem">Wachtwoord</label><br>
       <input id="mp-pass" type="password" placeholder="••••••"
-        style="width:100%;margin:8px 0 24px;padding:10px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1.1rem;box-sizing:border-box"><br>
-      <button id="mp-btn"
-        style="width:100%;padding:12px;border-radius:10px;border:none;background:#00d4ff;color:#000;font-size:1.2rem;cursor:pointer">
-        Inloggen 🎮
+        style="width:100%;margin:6px 0 20px;padding:10px;border-radius:8px;border:2px solid #00d4ff;background:#0d1b2a;color:#fff;font-size:1.1rem;box-sizing:border-box">
+      <button id="mp-btn" style="width:100%;padding:12px;border-radius:10px;border:none;background:#00d4ff;color:#000;font-size:1.2rem;font-weight:bold;cursor:pointer">
+        Spelen 🎮
       </button>
-      <p id="mp-err" style="color:#ff4444;margin-top:12px;text-align:center;min-height:20px"></p>
+      <p id="mp-err" style="color:#ff4444;margin-top:12px;text-align:center;min-height:20px;font-size:.9rem"></p>
     </div>
   `;
   document.body.appendChild(overlay);
 
+  // Laad klassen van server
+  fetch('/api/classes').then(r=>r.json()).then(classes => {
+    const klasSel = document.getElementById('mp-klas');
+    const naamSel = document.getElementById('mp-naam');
+    Object.keys(classes).forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k; opt.textContent = k;
+      klasSel.appendChild(opt);
+    });
+    klasSel.onchange = () => {
+      const klas = klasSel.value;
+      naamSel.innerHTML = '<option value="">-- Kies je naam --</option>';
+      if(klas && classes[klas]){
+        classes[klas].forEach(n => {
+          const opt = document.createElement('option');
+          opt.value = n; opt.textContent = n;
+          naamSel.appendChild(opt);
+        });
+        naamSel.disabled = false;
+        naamSel.style.borderColor = '#00d4ff';
+        naamSel.style.color = '#fff';
+      } else {
+        naamSel.disabled = true;
+        naamSel.style.borderColor = '#2a3a4a';
+        naamSel.style.color = '#aaa';
+      }
+    };
+  }).catch(()=>{
+    document.getElementById('mp-err').textContent = 'Server niet bereikbaar.';
+  });
+
   async function doLogin() {
-    const user = document.getElementById('mp-user').value.trim();
+    const klas = document.getElementById('mp-klas').value;
+    const naam = document.getElementById('mp-naam').value;
     const pass = document.getElementById('mp-pass').value;
     const err  = document.getElementById('mp-err');
+    err.style.color = '#ff4444';
     err.textContent = '';
-    if (!user || !pass) { err.textContent = 'Vul beide velden in!'; return; }
+    if(!klas) { err.textContent = 'Kies je klas!'; return; }
+    if(!naam) { err.textContent = 'Kies je naam!'; return; }
+    if(!pass) { err.textContent = 'Vul je wachtwoord in!'; return; }
+    // Login met klas-naam als username (unieke id)
+    const loginUser = klas.toLowerCase() + '-' + naam.toLowerCase();
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user, password: pass }),
+        body: JSON.stringify({ username: loginUser, password: pass }),
       });
       const data = await res.json();
-      if (!res.ok) { err.textContent = data.error || 'Fout!'; return; }
-      overlay.remove();
-      mpConnect(data.token, data.user.username, data.user.id, data.user.avatar);
-      mpUpdateHUD();
+      if (!res.ok) { err.textContent = data.error || 'Verkeerd wachtwoord!'; return; }
+      err.style.color = '#00ff88';
+      err.textContent = '✅ Welkom ' + naam + '!';
+      setTimeout(() => {
+        overlay.remove();
+        mpConnect(data.token, naam, data.user.id, data.user.avatar);
+        mpUpdateHUD();
+      }, 700);
     } catch(e) {
       err.textContent = 'Server niet bereikbaar.';
     }
   }
 
   document.getElementById('mp-btn').onclick = doLogin;
-  ['mp-user','mp-pass'].forEach(id =>
-    document.getElementById(id).addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); })
-  );
+  document.getElementById('mp-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 }
 
 window.addEventListener('DOMContentLoaded', () => setTimeout(mpShowLogin, 200));
