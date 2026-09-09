@@ -27,7 +27,7 @@ function saveAnswers(arr){ fs.writeFileSync(ANSWERS_FILE, JSON.stringify(arr,nul
 
 // ─── Hardcoded gebruikers ────────────────────────────────────────────────────
 const CLASSES = {
-  'Panters': ['Nassim','Mon','Niano','Mattanja','Ilyas','Kendji','Wesley','Luca','Hugo']
+  'Sprinkhanen': ['Dempsy','Sean','Matheo','Ilyas','Wesley','Colin']
 };
 const STUDENT_PASSWORD = 'jufcindy';
 const ADMIN_PASSWORD   = 'admin123';
