@@ -29,6 +29,9 @@ function saveAnswers(arr){ fs.writeFileSync(ANSWERS_FILE, JSON.stringify(arr,nul
 const CLASSES = {
   'Sprinkhanen': ['Dempsy','Sean','Matheo','Ilyas','Wesley','Colin']
 };
+const TEACHERS = {
+  'Jolien': 'Sprinkhanen'
+};
 const STUDENT_PASSWORD = 'jufcindy';
 const ADMIN_PASSWORD   = 'admin123';
 
@@ -39,6 +42,15 @@ const ADMIN_PASSWORD   = 'admin123';
     db.users.push({ id:'admin', username:'admin', password:bcrypt.hashSync(ADMIN_PASSWORD,10),
       role:'admin', klas:'', avatar:{shirt:0xe8231a,pants:0x2a3a6a,shoes:0x1a1a1a,pet:null},
       coins:0, xp:0, createdAt:new Date().toISOString() });
+  }
+  const teacherHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+  for(const [name, klas] of Object.entries(TEACHERS)){
+    const id = 'teacher-'+name.toLowerCase();
+    if(!existingIds.has(id)){
+      db.users.push({ id, username:name, klas, password:teacherHash,
+        role:'admin', avatar:{shirt:0xe8231a,pants:0x2a3a6a,shoes:0x1a1a1a,pet:null},
+        coins:0, xp:0, createdAt:new Date().toISOString() });
+    }
   }
   const studentHash = bcrypt.hashSync(STUDENT_PASSWORD, 10);
   for(const [klas, names] of Object.entries(CLASSES)){
