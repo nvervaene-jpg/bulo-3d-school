@@ -31,6 +31,10 @@ function makeFileStore(){
 
   return {
     async init(){},
+    async findUserForLogin(loginKey){
+      const db = loadDB();
+      return db.users.find(u=>u._id===loginKey || u.usernameLower===loginKey) || null;
+    },
     async findUserByUsernameLower(usernameLower){
       const db = loadDB();
       return db.users.find(u=>u.usernameLower===usernameLower) || null;
@@ -79,6 +83,9 @@ function makeFileStore(){
 function makeMongoStore(usersCol, answersCol){
   return {
     async init(){},
+    async findUserForLogin(loginKey){
+      return usersCol.findOne({ $or: [{_id:loginKey}, {usernameLower:loginKey}] });
+    },
     async findUserByUsernameLower(usernameLower){
       return usersCol.findOne({usernameLower});
     },
@@ -188,7 +195,7 @@ app.get('/api/classes', (req,res)=>{
 app.post('/api/login', async (req,res)=>{
   const {username, password} = req.body;
   if(!username||!password) return res.status(400).json({error:'Vul gebruikersnaam en wachtwoord in'});
-  const user = await store.findUserByUsernameLower(username.toLowerCase());
+  const user = await store.findUserForLogin(username.toLowerCase());
   if(!user||!bcrypt.compareSync(password, user.password))
     return res.status(401).json({error:'Verkeerde gebruikersnaam of wachtwoord'});
   const token = jwt.sign({id:user._id, username:user.username, role:user.role}, JWT_SECRET, {expiresIn:'8h'});
