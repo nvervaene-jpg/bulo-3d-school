@@ -5,18 +5,114 @@ const WebSocket  = require('ws');
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const path       = require('path');
+const fs         = require('fs');
 const { MongoClient } = require('mongodb');
 
 const JWT_SECRET   = 'bulo-sint-franciscus-2025-secret';
 const PORT         = process.env.PORT || 3000;
 const MONGODB_URI  = process.env.MONGODB_URI;
+const DB_FILE      = path.join(__dirname, 'users.json');
+const ANSWERS_FILE = path.join(__dirname, 'answers.json');
 
-if(!MONGODB_URI){
-  console.error('❌ MONGODB_URI ontbreekt. Zet deze environment variable (zie README) voor je de server start.');
-  process.exit(1);
+// ─── Opslag: MongoDB als MONGODB_URI is ingesteld, anders lokale JSON-bestanden ──
+// De JSON-bestanden staan op Render's tijdelijke schijf en gaan verloren bij een
+// herstart/redeploy. Zet MONGODB_URI in de omgeving voor permanente opslag.
+function makeFileStore(){
+  function loadDB(){
+    if(!fs.existsSync(DB_FILE)) return { users: [] };
+    try { return JSON.parse(fs.readFileSync(DB_FILE,'utf8')); } catch(e){ return {users:[]}; }
+  }
+  function saveDB(db){ fs.writeFileSync(DB_FILE, JSON.stringify(db,null,2)); }
+  function loadAnswers(){
+    if(!fs.existsSync(ANSWERS_FILE)) return [];
+    try { return JSON.parse(fs.readFileSync(ANSWERS_FILE,'utf8')); } catch(e){ return []; }
+  }
+  function saveAnswers(arr){ fs.writeFileSync(ANSWERS_FILE, JSON.stringify(arr,null,2)); }
+
+  return {
+    async init(){},
+    async findUserByUsernameLower(usernameLower){
+      const db = loadDB();
+      return db.users.find(u=>u.usernameLower===usernameLower) || null;
+    },
+    async insertUserIfMissing(doc){
+      const db = loadDB();
+      if(db.users.some(u=>u._id===doc._id)) return;
+      db.users.push(doc);
+      saveDB(db);
+    },
+    async insertUser(doc){
+      const db = loadDB();
+      db.users.push(doc);
+      saveDB(db);
+    },
+    async updateUser(id, patch){
+      const db = loadDB();
+      const user = db.users.find(u=>u._id===id);
+      if(!user) return false;
+      Object.assign(user, patch);
+      saveDB(db);
+      return true;
+    },
+    async deleteUser(id){
+      const db = loadDB();
+      db.users = db.users.filter(u=>u._id!==id);
+      saveDB(db);
+    },
+    async listUsers(){
+      return loadDB().users;
+    },
+    async insertAnswer(doc){
+      const answers = loadAnswers();
+      answers.push(doc);
+      saveAnswers(answers);
+    },
+    async listAnswers(){
+      return loadAnswers();
+    },
+    async clearAnswers(){
+      saveAnswers([]);
+    }
+  };
 }
 
-let usersCol, answersCol;
+function makeMongoStore(usersCol, answersCol){
+  return {
+    async init(){},
+    async findUserByUsernameLower(usernameLower){
+      return usersCol.findOne({usernameLower});
+    },
+    async insertUserIfMissing(doc){
+      const exists = await usersCol.findOne({_id:doc._id});
+      if(!exists) await usersCol.insertOne(doc);
+    },
+    async insertUser(doc){
+      await usersCol.insertOne(doc);
+    },
+    async updateUser(id, patch){
+      const result = await usersCol.updateOne({_id:id}, {$set:patch});
+      return result.matchedCount>0;
+    },
+    async deleteUser(id){
+      await usersCol.deleteOne({_id:id});
+    },
+    async listUsers(){
+      return usersCol.find({}).toArray();
+    },
+    async insertAnswer(doc){
+      await answersCol.insertOne(doc);
+    },
+    async listAnswers(){
+      const answers = await answersCol.find({}).sort({timestamp:1}).toArray();
+      return answers.map(({_id, ...rest})=>rest);
+    },
+    async clearAnswers(){
+      await answersCol.deleteMany({});
+    }
+  };
+}
+
+let store;
 
 // ─── Hardcoded gebruikers ────────────────────────────────────────────────────
 const CLASSES = {
@@ -32,20 +128,15 @@ function defaultAvatar(){
   return {shirt:0xe8231a,pants:0x2a3a6a,shoes:0x1a1a1a,pet:null};
 }
 
-async function insertIfMissing(doc){
-  const exists = await usersCol.findOne({_id:doc._id});
-  if(!exists) await usersCol.insertOne(doc);
-}
-
-async function initDB(){
-  await insertIfMissing({ _id:'admin', username:'admin', usernameLower:'admin',
+async function initUsers(){
+  await store.insertUserIfMissing({ _id:'admin', username:'admin', usernameLower:'admin',
     password:bcrypt.hashSync(ADMIN_PASSWORD,10), role:'admin', klas:'',
     avatar:defaultAvatar(), coins:0, xp:0, createdAt:new Date().toISOString() });
 
   const teacherHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
   for(const [name, klas] of Object.entries(TEACHERS)){
     const id = 'teacher-'+name.toLowerCase();
-    await insertIfMissing({ _id:id, username:name, usernameLower:name.toLowerCase(), klas,
+    await store.insertUserIfMissing({ _id:id, username:name, usernameLower:name.toLowerCase(), klas,
       password:teacherHash, role:'admin', avatar:defaultAvatar(), coins:0, xp:0,
       createdAt:new Date().toISOString() });
   }
@@ -54,7 +145,7 @@ async function initDB(){
   for(const [klas, names] of Object.entries(CLASSES)){
     for(const name of names){
       const id = klas.toLowerCase()+'-'+name.toLowerCase();
-      await insertIfMissing({ _id:id, username:name, usernameLower:name.toLowerCase(), klas,
+      await store.insertUserIfMissing({ _id:id, username:name, usernameLower:name.toLowerCase(), klas,
         password:studentHash, role:'student', avatar:defaultAvatar(), coins:0, xp:0,
         createdAt:new Date().toISOString() });
     }
@@ -97,7 +188,7 @@ app.get('/api/classes', (req,res)=>{
 app.post('/api/login', async (req,res)=>{
   const {username, password} = req.body;
   if(!username||!password) return res.status(400).json({error:'Vul gebruikersnaam en wachtwoord in'});
-  const user = await usersCol.findOne({usernameLower: username.toLowerCase()});
+  const user = await store.findUserByUsernameLower(username.toLowerCase());
   if(!user||!bcrypt.compareSync(password, user.password))
     return res.status(401).json({error:'Verkeerde gebruikersnaam of wachtwoord'});
   const token = jwt.sign({id:user._id, username:user.username, role:user.role}, JWT_SECRET, {expiresIn:'8h'});
@@ -106,25 +197,25 @@ app.post('/api/login', async (req,res)=>{
 
 // ─── Admin: gebruikers beheren ────────────────────────────────────────────
 app.get('/api/users', auth, adminOnly, async (req,res)=>{
-  const users = await usersCol.find({}).toArray();
+  const users = await store.listUsers();
   res.json(users.map(u=>({id:u._id,username:u.username,role:u.role,coins:u.coins,xp:u.xp,createdAt:u.createdAt})));
 });
 
 app.post('/api/users', auth, adminOnly, async (req,res)=>{
   const {username, password} = req.body;
   if(!username||!password) return res.status(400).json({error:'Gebruikersnaam en wachtwoord vereist'});
-  const existing = await usersCol.findOne({usernameLower: username.toLowerCase()});
+  const existing = await store.findUserByUsernameLower(username.toLowerCase());
   if(existing) return res.status(400).json({error:'Gebruikersnaam bestaat al'});
   const id = username.toLowerCase().replace(/\s+/g,'-') + '-' + Date.now();
   const hash = bcrypt.hashSync(password, 10);
-  await usersCol.insertOne({ _id:id, username, usernameLower:username.toLowerCase(), password:hash,
+  await store.insertUser({ _id:id, username, usernameLower:username.toLowerCase(), password:hash,
     role:'student', avatar:defaultAvatar(), coins:0, xp:0, createdAt:new Date().toISOString() });
   res.json({ok:true, id, username});
 });
 
 app.delete('/api/users/:id', auth, adminOnly, async (req,res)=>{
   if(req.params.id==='admin') return res.status(400).json({error:'Kan admin niet verwijderen'});
-  await usersCol.deleteOne({_id:req.params.id});
+  await store.deleteUser(req.params.id);
   res.json({ok:true});
 });
 
@@ -132,27 +223,27 @@ app.patch('/api/users/:id/password', auth, adminOnly, async (req,res)=>{
   const {password} = req.body;
   if(!password) return res.status(400).json({error:'Wachtwoord vereist'});
   const hash = bcrypt.hashSync(password, 10);
-  const result = await usersCol.updateOne({_id:req.params.id}, {$set:{password:hash}});
-  if(result.matchedCount===0) return res.status(404).json({error:'Gebruiker niet gevonden'});
+  const matched = await store.updateUser(req.params.id, {password:hash});
+  if(!matched) return res.status(404).json({error:'Gebruiker niet gevonden'});
   res.json({ok:true});
 });
 
 // ─── Progress opslaan ────────────────────────────────────────────────────
 app.patch('/api/me/progress', auth, async (req,res)=>{
   const {coins, xp, avatar} = req.body;
-  const set = {};
-  if(coins!=null) set.coins = coins;
-  if(xp!=null)    set.xp   = xp;
-  if(avatar)      set.avatar = avatar;
-  const result = await usersCol.updateOne({_id:req.user.id}, {$set:set});
-  if(result.matchedCount===0) return res.status(404).json({error:'Niet gevonden'});
+  const patch = {};
+  if(coins!=null) patch.coins = coins;
+  if(xp!=null)    patch.xp   = xp;
+  if(avatar)      patch.avatar = avatar;
+  const matched = await store.updateUser(req.user.id, patch);
+  if(!matched) return res.status(404).json({error:'Niet gevonden'});
   res.json({ok:true});
 });
 
 // ─── Antwoorden opslaan & ophalen ─────────────────────────────────────────
 app.post('/api/answers', auth, async (req,res)=>{
   const { question, zone, correct, timestamp } = req.body;
-  await answersCol.insertOne({
+  await store.insertAnswer({
     userId:    req.user.id,
     username:  req.user.username,
     question:  question || '?',
@@ -164,12 +255,11 @@ app.post('/api/answers', auth, async (req,res)=>{
 });
 
 app.get('/api/answers', auth, adminOnly, async (req,res)=>{
-  const answers = await answersCol.find({}).sort({timestamp:1}).toArray();
-  res.json(answers.map(({_id, ...rest})=>rest));
+  res.json(await store.listAnswers());
 });
 
 app.delete('/api/answers', auth, adminOnly, async (req,res)=>{
-  await answersCol.deleteMany({});
+  await store.clearAnswers();
   res.json({ok:true});
 });
 
@@ -234,12 +324,17 @@ app.get('/api/online', auth, (req,res)=>{
 });
 
 async function start(){
-  const client = new MongoClient(MONGODB_URI);
-  await client.connect();
-  const db = client.db('buloschool');
-  usersCol = db.collection('users');
-  answersCol = db.collection('answers');
-  await initDB();
+  if(MONGODB_URI){
+    const client = new MongoClient(MONGODB_URI);
+    await client.connect();
+    const db = client.db('buloschool');
+    store = makeMongoStore(db.collection('users'), db.collection('answers'));
+    console.log('💾 Opslag: MongoDB (permanent)');
+  } else {
+    store = makeFileStore();
+    console.log('⚠️  Opslag: lokale bestanden (tijdelijk — gaat verloren bij herstart). Zet MONGODB_URI voor permanente opslag.');
+  }
+  await initUsers();
 
   server.listen(PORT, ()=>{
     console.log(`🏫 BuLo Sint-Franciscus server draait op http://localhost:${PORT}`);
@@ -249,6 +344,6 @@ async function start(){
 }
 
 start().catch(err=>{
-  console.error('❌ Kon niet verbinden met de database:', err.message);
+  console.error('❌ Kon niet opstarten:', err.message);
   process.exit(1);
 });
